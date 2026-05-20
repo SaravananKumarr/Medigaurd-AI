@@ -73,10 +73,55 @@
 
 <div class="panel">
   <div class="panel-header">
+    Simulation Inputs
+    <div>
+      <button class="refresh-btn" onclick="runSimulation()">Run Simulation</button>
+    </div>
+  </div>
+  <div style="padding: 20px; display: grid; gap: 14px;">
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+      <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:#a0aec0">
+        Scenario
+        <select id="sim-scenario" style="border-radius:8px;border:1px solid #2d3748;background:#0f1117;color:#e2e8f0;padding:10px;font-size:14px">
+          <option value="all">All attacks</option>
+          <option value="ransomware">Ransomware</option>
+          <option value="brute_force">Brute force</option>
+          <option value="lateral_movement">Lateral movement</option>
+          <option value="ehr_unauthorized">EHR unauthorized</option>
+          <option value="data_exfiltration">Data exfiltration</option>
+        </select>
+      </label>
+      <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:#a0aec0">
+        Event count
+        <input id="sim-count" type="number" min="10" max="1000" value="200" style="border-radius:8px;border:1px solid #2d3748;background:#0f1117;color:#e2e8f0;padding:10px;font-size:14px" />
+      </label>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <button class="refresh-btn" onclick="fetchThreats()">Refresh threats</button>
+      <button class="refresh-btn" onclick="resetDashboard()">Clear inputs</button>
+    </div>
+    <div id="sim-summary" style="font-size:13px;color:#a0aec0"></div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-header">
+    Custom event analyzer
+    <div>
+      <button class="refresh-btn" onclick="analyzeEvents()">Analyze events</button>
+    </div>
+  </div>
+  <div style="padding: 20px; display: grid; gap: 14px;">
+    <textarea id="custom-events" rows="8" placeholder='Paste events JSON array here, e.g. [{"src_ip":"10.0.0.1","dst_ip":"10.0.0.5","attack_type":"ransomware","timestamp":"2026-05-20T12:00:00"}]' style="width:100%;border-radius:10px;border:1px solid #2d3748;background:#0f1117;color:#e2e8f0;padding:14px;font-size:13px;resize:vertical"></textarea>
+    <div id="analyze-summary" style="font-size:13px;color:#a0aec0"></div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-header">
     Recent threat events
     <div>
       <button class="refresh-btn" onclick="fetchThreats()">Refresh</button>
-      <button class="refresh-btn" onclick="simulateThreats()">Simulate</button>
     </div>
   </div>
   <div id="threat-table-wrap">
@@ -135,27 +180,93 @@ async function fetchThreats() {
   } catch(e) { console.error(e); }
 }
 
-async function simulateThreats() {
+function getSimulationForm() {
+  return {
+    scenario: document.getElementById('sim-scenario').value,
+    n: Math.max(10, Math.min(1000, Number(document.getElementById('sim-count').value || 200)))
+  };
+}
+
+function clearSimulationSummary() {
+  document.getElementById('sim-summary').textContent = '';
+}
+
+function clearAnalyzeSummary() {
+  document.getElementById('analyze-summary').textContent = '';
+}
+
+async function runSimulation() {
+  clearSimulationSummary();
+  const { scenario, n } = getSimulationForm();
   try {
     const res = await fetch('/api/simulate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scenario: 'all', n: 60 }),
+      body: JSON.stringify({ scenario, n }),
     });
     if (!res.ok) {
       const text = await res.text();
       throw new Error(text);
     }
-    await res.json();
+    const data = await res.json();
+    document.getElementById('sim-summary').textContent =
+      `Simulated ${data.generated} events (${data.attack_rate * 100}% attack rate), ${data.threat_count} threats detected.`;
     await fetchThreats();
   } catch (e) {
     console.error('Simulation failed:', e);
+    document.getElementById('sim-summary').textContent = 'Simulation failed: ' + e.message;
   }
+}
+
+async function analyzeEvents() {
+  clearAnalyzeSummary();
+  const raw = document.getElementById('custom-events').value.trim();
+  if (!raw) {
+    document.getElementById('analyze-summary').textContent = 'Please paste a JSON event array first.';
+    return;
+  }
+
+  let events;
+  try {
+    events = JSON.parse(raw);
+    if (!Array.isArray(events)) {
+      throw new Error('Expected a JSON array of event objects.');
+    }
+  } catch (e) {
+    document.getElementById('analyze-summary').textContent = 'Invalid JSON: ' + e.message;
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ events }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text);
+    }
+    const data = await res.json();
+    document.getElementById('analyze-summary').textContent =
+      `Analyzed ${data.analyzed} events, detected ${data.threats} threats.`;
+    await fetchThreats();
+  } catch (e) {
+    console.error('Analyze failed:', e);
+    document.getElementById('analyze-summary').textContent = 'Analyze failed: ' + e.message;
+  }
+}
+
+function resetDashboard() {
+  document.getElementById('sim-scenario').value = 'all';
+  document.getElementById('sim-count').value = 200;
+  document.getElementById('custom-events').value = '';
+  clearSimulationSummary();
+  clearAnalyzeSummary();
 }
 
 async function initDashboard() {
   await fetchThreats();
-  await simulateThreats();
   setInterval(fetchThreats, 4000);
 }
 
