@@ -1,5 +1,4 @@
-"""
-scripts/train.py
+"""scripts/train.py
 Train all MediGuard AI models on synthetic (or real) healthcare event data.
 
 Usage:

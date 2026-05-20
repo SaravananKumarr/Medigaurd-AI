@@ -98,13 +98,7 @@ def analyze():
         df["timestamp"] = pd.to_datetime(df.get("timestamp", datetime.now()))
         threats = _engine.analyze(df)
 
-        with _lock:
-            for t in threats:
-                _threats.append(t.to_dict())
-                sev = t.severity.lower()
-                _stats["total"] += 1
-                if sev in _stats:
-                    _stats[sev] += 1
+        _log_threats(threats)
 
         return jsonify({
             "analyzed":    len(events),
@@ -113,6 +107,18 @@ def analyze():
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+def _log_threats(threats):
+    with _lock:
+        for t in threats:
+            _threats.append(t.to_dict())
+            sev = t.severity.lower()
+            _stats["total"] += 1
+            if sev in _stats:
+                _stats[sev] += 1
+        if len(_threats) > 500:
+            _threats[:] = _threats[-500:]
 
 
 @app.route("/api/simulate", methods=["POST"])
@@ -128,7 +134,11 @@ def simulate():
     df = generate_dataset(n_normal=n, n_per_attack=n // 6 or 30,
                           attack_types=attack_types, seed=int(time.time()))
 
-    # Return stats even without models
+    threats = []
+    if _engine is not None:
+        threats = _engine.analyze(df)
+        _log_threats(threats)
+
     attack_rate = float((df["label"] == "attack").mean())
     sample = df.head(10).to_dict(orient="records")
 
@@ -137,6 +147,8 @@ def simulate():
         "attack_rate": round(attack_rate, 3),
         "distribution": df["attack_type"].value_counts().to_dict(),
         "sample": sample,
+        "threats": [t.to_dict() for t in threats],
+        "threat_count": len(threats),
     })
 
 
@@ -151,6 +163,8 @@ def stats():
 def _demo_feed():
     """Pushes synthetic events to the in-memory log for demo purposes."""
     import random
+    from src.data.simulator import generate_dataset
+
     attack_types = ["ransomware", "brute_force", "lateral_movement",
                     "ehr_unauthorized", "data_exfiltration", "normal"]
     severities   = ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
@@ -158,7 +172,11 @@ def _demo_feed():
     while True:
         time.sleep(5)
         if _engine is not None:
-            continue  # real engine handles events
+            df = generate_dataset(n_normal=8, n_per_attack=2, attack_types=attack_types,
+                                  seed=int(time.time()))
+            threats = _engine.analyze(df)
+            _log_threats(threats)
+            continue
         n_events = random.randint(0, 3)
         with _lock:
             for _ in range(n_events):
@@ -189,4 +207,5 @@ if __name__ == "__main__":
     _try_load_engine()
     t = threading.Thread(target=_demo_feed, daemon=True)
     t.start()
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    port = int(os.environ.get("MEDIGUARD_PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)

@@ -74,7 +74,10 @@
 <div class="panel">
   <div class="panel-header">
     Recent threat events
-    <button class="refresh-btn" onclick="fetchThreats()">Refresh</button>
+    <div>
+      <button class="refresh-btn" onclick="fetchThreats()">Refresh</button>
+      <button class="refresh-btn" onclick="simulateThreats()">Simulate</button>
+    </div>
   </div>
   <div id="threat-table-wrap">
     <div class="empty">Waiting for events…</div>
@@ -132,8 +135,31 @@ async function fetchThreats() {
   } catch(e) { console.error(e); }
 }
 
-fetchThreats();
-setInterval(fetchThreats, 4000);
+async function simulateThreats() {
+  try {
+    const res = await fetch('/api/simulate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scenario: 'all', n: 60 }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text);
+    }
+    await res.json();
+    await fetchThreats();
+  } catch (e) {
+    console.error('Simulation failed:', e);
+  }
+}
+
+async function initDashboard() {
+  await fetchThreats();
+  await simulateThreats();
+  setInterval(fetchThreats, 4000);
+}
+
+initDashboard();
 </script>
 </body>
 </html>
