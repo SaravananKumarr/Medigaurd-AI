@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MediGuard AI — Threat Dashboard</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; }
+  header { background: #1a1f2e; border-bottom: 1px solid #2d3748; padding: 14px 24px;
+           display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 20px; font-weight: 600; color: #63b3ed; }
+  .badge { background: #2d3748; border-radius: 12px; padding: 2px 10px; font-size: 12px; }
+  .badge.live { background: #22543d; color: #9ae6b4; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 20px 24px; }
+  .stat-card { background: #1a1f2e; border-radius: 10px; padding: 16px;
+               border-left: 3px solid; }
+  .stat-card.critical { border-color: #fc8181; }
+  .stat-card.high     { border-color: #f6ad55; }
+  .stat-card.medium   { border-color: #f6e05e; }
+  .stat-card.low      { border-color: #68d391; }
+  .stat-value { font-size: 32px; font-weight: 700; margin-bottom: 4px; }
+  .stat-label { font-size: 12px; color: #a0aec0; text-transform: uppercase; letter-spacing: .5px; }
+  .panel { margin: 0 24px 20px; background: #1a1f2e; border-radius: 10px; overflow: hidden; }
+  .panel-header { padding: 14px 20px; border-bottom: 1px solid #2d3748; font-weight: 600;
+                  font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { padding: 10px 16px; text-align: left; color: #718096; font-weight: 500;
+       border-bottom: 1px solid #2d3748; font-size: 12px; text-transform: uppercase; }
+  td { padding: 11px 16px; border-bottom: 1px solid #1e2535; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #212636; }
+  .sev { border-radius: 6px; padding: 2px 9px; font-size: 11px; font-weight: 600; display: inline-block; }
+  .sev-CRITICAL { background: #742a2a; color: #fc8181; }
+  .sev-HIGH     { background: #7b341e; color: #f6ad55; }
+  .sev-MEDIUM   { background: #744210; color: #f6e05e; }
+  .sev-LOW      { background: #1c4532; color: #68d391; }
+  .score-bar { height: 6px; border-radius: 3px; background: #2d3748; position: relative; overflow: hidden; }
+  .score-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, #68d391, #fc8181); }
+  .empty { padding: 40px; text-align: center; color: #4a5568; font-size: 14px; }
+  .refresh-btn { background: #2d3748; border: none; color: #a0aec0; padding: 6px 14px;
+                 border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .refresh-btn:hover { background: #4a5568; }
+  #last-update { font-size: 11px; color: #4a5568; }
+</style>
+</head>
+<body>
+<header>
+  <h1>MediGuard AI</h1>
+  <span class="badge live">● LIVE</span>
+  <span class="badge">Healthcare Threat Detection</span>
+  <span id="last-update" style="margin-left:auto"></span>
+</header>
+
+<div class="stats">
+  <div class="stat-card critical">
+    <div class="stat-value" id="cnt-critical" style="color:#fc8181">0</div>
+    <div class="stat-label">Critical</div>
+  </div>
+  <div class="stat-card high">
+    <div class="stat-value" id="cnt-high" style="color:#f6ad55">0</div>
+    <div class="stat-label">High</div>
+  </div>
+  <div class="stat-card medium">
+    <div class="stat-value" id="cnt-medium" style="color:#f6e05e">0</div>
+    <div class="stat-label">Medium</div>
+  </div>
+  <div class="stat-card low">
+    <div class="stat-value" id="cnt-low" style="color:#68d391">0</div>
+    <div class="stat-label">Low</div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-header">
+    Recent threat events
+    <button class="refresh-btn" onclick="fetchThreats()">Refresh</button>
+  </div>
+  <div id="threat-table-wrap">
+    <div class="empty">Waiting for events…</div>
+  </div>
+</div>
+
+<script>
+function renderTable(threats) {
+  if (!threats.length) {
+    document.getElementById('threat-table-wrap').innerHTML =
+      '<div class="empty">No threats detected yet. Run a simulation or analyze events.</div>';
+    return;
+  }
+  const rows = [...threats].reverse().slice(0, 50).map(t => {
+    const ts = t.timestamp ? t.timestamp.replace('T',' ').slice(0,19) : '';
+    const score = t.combined_score || t.confidence || 0;
+    const pct = Math.round(score * 100);
+    const sev = t.severity || 'LOW';
+    return `<tr>
+      <td>${ts}</td>
+      <td>${t.src_ip || '-'}</td>
+      <td>${t.dst_ip || '-'}</td>
+      <td>${(t.attack_type || 'unknown').replace(/_/g,' ')}</td>
+      <td><span class="sev sev-${sev}">${sev}</span></td>
+      <td style="min-width:90px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="score-bar" style="flex:1"><div class="score-fill" style="width:${pct}%"></div></div>
+          <span style="font-size:11px;color:#a0aec0">${pct}%</span>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+  document.getElementById('threat-table-wrap').innerHTML = `
+    <table>
+      <thead><tr>
+        <th>Time</th><th>Source IP</th><th>Dest IP</th>
+        <th>Attack type</th><th>Severity</th><th>Confidence</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function fetchThreats() {
+  try {
+    const r = await fetch('/api/threats?n=50');
+    const data = await r.json();
+    renderTable(data.threats || []);
+    const s = data.stats || {};
+    document.getElementById('cnt-critical').textContent = s.critical || 0;
+    document.getElementById('cnt-high').textContent     = s.high     || 0;
+    document.getElementById('cnt-medium').textContent   = s.medium   || 0;
+    document.getElementById('cnt-low').textContent      = s.low      || 0;
+    document.getElementById('last-update').textContent  =
+      'Updated ' + new Date().toLocaleTimeString();
+  } catch(e) { console.error(e); }
+}
+
+fetchThreats();
+setInterval(fetchThreats, 4000);
+</script>
+</body>
+</html>

@@ -1,0 +1,70 @@
+name: MediGuard AI CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy pandas scikit-learn xgboost joblib pytest
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
+
+      - name: Quick smoke test — data pipeline
+        run: |
+          python -c "
+          from src.data.simulator import generate_dataset
+          from src.data.preprocessor import MediGuardPreprocessor
+          df = generate_dataset(n_normal=200, n_per_attack=30)
+          p = MediGuardPreprocessor()
+          X_tr, X_te, y_tr, y_te = p.fit_transform(df)
+          print(f'Pipeline OK — train: {X_tr.shape}, test: {X_te.shape}')
+          "
+
+      - name: Quick smoke test — Isolation Forest
+        run: |
+          python -c "
+          from src.data.simulator import generate_dataset
+          from src.data.preprocessor import MediGuardPreprocessor
+          from src.models.isolation_forest import IFAnomalyDetector
+          import numpy as np
+          df = generate_dataset(n_normal=300, n_per_attack=30)
+          p = MediGuardPreprocessor()
+          X_tr, X_te, y_tr, y_te = p.fit_transform(df)
+          model = IFAnomalyDetector(contamination=0.05).fit(X_tr)
+          scores = model.predict_proba_anomaly(X_te)
+          print(f'IF OK — score range: {scores.min():.3f} to {scores.max():.3f}')
+          "
+
+      - name: Quick smoke test — Ensemble
+        run: |
+          python -c "
+          from src.data.simulator import generate_dataset
+          from src.data.preprocessor import MediGuardPreprocessor
+          from src.models.ensemble import EnsembleDetector
+          df = generate_dataset(n_normal=300, n_per_attack=30)
+          p = MediGuardPreprocessor()
+          X_tr, X_te, y_tr, y_te = p.fit_transform(df)
+          model = EnsembleDetector().fit(X_tr, y_tr)
+          res = model.evaluate(X_te, y_te)
+          print(f'Ensemble OK — accuracy: {res[\"classification_report\"][\"accuracy\"]:.3f}')
+          "
